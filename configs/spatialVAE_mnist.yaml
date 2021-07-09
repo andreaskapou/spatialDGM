@@ -1,0 +1,23 @@
+dataset: mnist      # Dataset name
+likelihood: bernoulli # likelihood term for p(x | z)
+z_dim: 8            # Latent variable dimension
+hidden_dim: 512     # Dimension of hidden layers
+num_layers: 2       # Number of hidden layers
+activation: relu    # Activation function
+modify: rotate      # Modification: none, rotate (for now)
+kl_coef: 1.0        # Coefficient for KL term of the loss
+lr: 1e-4            # Learning rate
+step_size: 25       # Epochs num for learning rate to decay
+batch_size: 64      # Mini-batch size
+num_workers: 2      # Number of cpu workers in pytorch dataloader
+num_epochs: 100      # Number of training epochs
+fast_dev_run: false  # runs 1 batch of train, test and val 
+
+# Parameters specific to spatialVAE model
+dx_scale: 0.1       # Standard deviation of 'translation' latent variables
+theta_prior: 0.7854 # pi/4, standard deviation on rotation prior
+
+hydra:
+  run:
+    # Output directory
+    dir: ../output/spatialVAE_mnist_rotate_z8   #_${now:%Y%m%d_%H%M%S}

@@ -1,0 +1,16 @@
+dataset: mnist
+likelihood: bernoulli
+z_dim: 8
+hidden_dim: 512
+num_layers: 2
+activation: relu
+modify: none
+kl_coef: 1.0
+lr: 0.0001
+step_size: 25
+batch_size: 64
+num_workers: 2
+num_epochs: 100
+fast_dev_run: false
+dx_scale: 0.1
+theta_prior: 0.7854
