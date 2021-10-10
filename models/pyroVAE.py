@@ -89,7 +89,8 @@ class PyroVAE(nn.Module):
         # Create fixed coordinates array x
         x0, x1 = np.meshgrid(np.linspace(-1, 1, data_dim[1]), np.linspace(1, -1, data_dim[2]))
         x = np.stack([x0.ravel(), x1.ravel()], 1)
-        self.x = torch.from_numpy(x).float().to(self.device)
+        x = torch.from_numpy(x).float()
+        self.x = x.to(self.device)
 
         self.to(self.device)
 
@@ -126,7 +127,7 @@ class PyroVAE(nn.Module):
             if self.modify > 0:  # rotationally- and/or translationaly-invariant mode
                 # Split latent variable into parts for rotation
                 # and/or translation and image content
-                theta = dx = torch.tensor(0)
+                theta = dx = torch.tensor(0).to(self.device)
                 if self.rotate & self.translate:
                     theta = z[:, 0]  # z[0] is the rotation theta
                     dx = z[:, 1:3]   # z[1:2] is the translation Dx

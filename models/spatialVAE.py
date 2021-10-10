@@ -99,7 +99,7 @@ class SpatialVAE(VAE):
         # Draw samples from variational posterior to calculate E[p(x|z)] 
         z = self.reparameterize(mu=z_mu, std=z_std)
 
-        theta = dx = torch.tensor([0]).float()
+        theta = dx = torch.tensor(0).float()
         if self.modify > 0:  # rotationally- and/or translationaly-invariant mode
             # Split latent variable into parts for rotation
             # and/or translation and image content
