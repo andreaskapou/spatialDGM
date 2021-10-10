@@ -66,7 +66,8 @@ class SpatialVAE(VAE):
         # Create fixed coordinates array x
         x0, x1 = np.meshgrid(np.linspace(-1, 1, data_dim[1]), np.linspace(1, -1, data_dim[2]))
         x = np.stack([x0.ravel(), x1.ravel()], 1)
-        self.x = torch.from_numpy(x).float()
+        x = torch.from_numpy(x).float()
+        self.x = x
 
         # Define encoder-decoder
         if self.modify == 0:
@@ -98,7 +99,7 @@ class SpatialVAE(VAE):
         # Draw samples from variational posterior to calculate E[p(x|z)] 
         z = self.reparameterize(mu=z_mu, std=z_std)
 
-        theta = dx = torch.tensor(0)
+        theta = dx = torch.tensor([0]).float()
         if self.modify > 0:  # rotationally- and/or translationaly-invariant mode
             # Split latent variable into parts for rotation
             # and/or translation and image content
