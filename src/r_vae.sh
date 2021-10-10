@@ -4,7 +4,7 @@
 #$ -N log_vae_none2
 #$ -cwd
 #$ -l h_rt=3:00:00
-#$ -l h_vmem=25G
+#$ -l h_vmem=30G
 #$ -pe gpu-titanx 2
 #$ -R y
 

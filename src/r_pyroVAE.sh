@@ -1,11 +1,12 @@
 #!/bin/bash
 
 # Grid Engine options (lines prefixed with #$)
-#$ -N log_pyrovae_m0z2
+#$ -N log_pyrovae_m1z8
 #$ -cwd
-#$ -l h_rt=6:00:00
-#$ -l h_vmem=30G
-#$ -pe gpu-titanx 2
+#$ -l h_rt=15:00:00
+#$ -l h_vmem=15G
+#$-pe sharedmem 2
+# -pe gpu-titanx 2
 #$ -R y
 
 # Initialise PATH to see local scripts
