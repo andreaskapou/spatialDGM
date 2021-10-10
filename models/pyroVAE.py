@@ -112,7 +112,7 @@ class PyroVAE(nn.Module):
         # Register PyTorch Decoder module `p_net` with Pyro
         pyro.module("p_net", self.p_net)
         # KLD scale factor (see e.g. https://openreview.net/pdf?id=Sy2fzU9gl)
-        beta = self.kl_coef.to(self.device)
+        beta = self.kl_coef
         # xy - spatial coordinates
         x = self.x
         batch_size = y.size(0)
@@ -180,7 +180,7 @@ class PyroVAE(nn.Module):
         # register PyTorch Encoder module `q_net` with Pyro
         pyro.module("q_net", self.q_net)
         # KLD scale factor (see e.g. https://openreview.net/pdf?id=Sy2fzU9gl)
-        beta = self.kl_coef.to(self.device)
+        beta = self.kl_coef
         with pyro.plate("data", y.size(0)):
             # use the encoder to get the parameters used to define q(z|y)
             z_loc, z_logscale, z_scale = self.q_net(y)
