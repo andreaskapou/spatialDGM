@@ -115,7 +115,10 @@ class PyroVAE(nn.Module):
         beta = self.kl_coef
         # xy - spatial coordinates
         x = self.x
+        
+        # Expand x to match batch size
         batch_size = y.size(0)
+        x = x.expand(batch_size, x.size(0), x.size(1))
 
         data_dim = np.prod(self.data_dim)
         with pyro.plate("data", y.size(0)):
@@ -142,7 +145,7 @@ class PyroVAE(nn.Module):
 
                 if self.rotate:
                     # Calculate the rotation matrix R
-                    R = theta.data.new(batch_size, 2, 2).zero_().to(self.device)
+                    R = theta.data.new(batch_size, 2, 2).zero_()
                     R[:, 0, 0] = torch.cos(theta)
                     R[:, 0, 1] = torch.sin(theta)
                     R[:, 1, 0] = -torch.sin(theta)
