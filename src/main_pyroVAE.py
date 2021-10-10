@@ -64,7 +64,7 @@ def train_vae(cfg):
     ####----------------------------------
     
     # TODO: Specific for current Pyro implementation. Need to make this more generic inside PyroVAE
-    mnist_train_data = MnistRotate(root = osp.join('..', 'data'), train = True, modify=1,
+    mnist_train_data = MnistRotate(root = osp.join('..', '..', 'data'), train = True, modify=1,
                          transform=transforms.Compose([transforms.ToTensor()]))
     mnist_train_loader = torch.utils.data.DataLoader(
         mnist_train_data, batch_size=cfg.batch_size, shuffle=True)
