@@ -277,11 +277,12 @@ class SVITrainer:
         pyro.clear_param_store()
         set_deterministic_mode(seed)
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        model = model.to(self.device)
+
         if optimizer is None:
             optimizer = pyro.optim.Adam({"lr": 1.0e-3})
         if loss is None:
             loss = pyro.infer.Trace_ELBO()
-
         self.svi = pyro.infer.SVI(model=model.model, guide=model.guide, optim=optimizer, loss=loss)
         self.loss_history = {"training_loss": [], "test_loss": []}
         self.current_epoch = 0
