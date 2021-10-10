@@ -60,8 +60,6 @@ def train_vae(cfg):
     ###
     ##Load dataset, default we assume it is rotated
     ###
-    dm = MnistDataModule(data_dir = osp.join('..', '..', 'data'), batch_size=cfg.batch_size, 
-        num_workers=cfg.num_workers, modify=1)
 
     ####----------------------------------
     
