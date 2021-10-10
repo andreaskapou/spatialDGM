@@ -17,7 +17,7 @@ import pyro
 import torchvision.transforms.functional as TF
 import torchvision.transforms as transforms
 
-from dm_mnist import MnistDataModule
+from dm_mnist import MnistDataModule, MnistRotate
 from pyroVAE import PyroVAE, SVITrainer
 
 from omegaconf import OmegaConf
@@ -66,8 +66,10 @@ def train_vae(cfg):
     ####----------------------------------
     
     # TODO: Specific for current Pyro implementation. Need to make this more generic inside PyroVAE
-    mnist_train_data = dm.train_set
-    mnist_train_loader = dm.train_dataloader()
+    mnist_train_data = MnistRotate(root = osp.join('..', 'data'), train = True, modify=1,
+                         transform=transforms.Compose([transforms.ToTensor()]))
+    mnist_train_loader = torch.utils.data.DataLoader(
+        mnist_train_data, batch_size=cfg.batch_size, shuffle=True)
 
     # Extract each component of the dataset in a different variable
     angles = []
@@ -83,7 +85,8 @@ def train_vae(cfg):
     train_data = torch.squeeze(train_data)
 
     # Create data loader
-    train_loader = init_dataloader(train_data, batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers)
+    train_loader = init_dataloader(
+        train_data, batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers)
 
     ###-------------------------------------
 

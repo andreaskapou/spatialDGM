@@ -46,9 +46,9 @@ class SpatialVAE(VAE):
         # SpatialVAE specific params
         ##
         # Standard deviation on rotation prior theta
-        self.theta_prior = torch.tensor(hparams.theta_prior)
+        self.theta_prior = hparams.theta_prior
         # Standard deviation of 'translation' latent variables
-        self.dx_scale = torch.tensor(hparams.dx_scale)
+        self.dx_scale = hparams.dx_scale
 
         # What modification we will perform on the data
         self.rotate = self.translate = False
