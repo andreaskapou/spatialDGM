@@ -101,8 +101,8 @@ def train_vae(cfg):
     ###
     ## Initialize SVI trainer
     ###
-    trainer = SVITrainer(model=vae_model)#, optimizer=pyro.optim.Adam({"lr": cfg.lr}), 
-        #loss=pyro.infer.Trace_ELBO(), seed=cfg.seed)
+    trainer = SVITrainer(model=vae_model, optimizer=pyro.optim.Adam({"lr": cfg.lr}), 
+        loss=pyro.infer.Trace_ELBO(), seed=cfg.seed)
 
     # Train for n epochs
     for e in range(cfg.num_epochs):
