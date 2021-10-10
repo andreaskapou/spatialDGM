@@ -1,7 +1,7 @@
 # Custom folders
 .idea/*
 data/*
-#output/*
+output/*
 .DS_Store
 
 # VIM files
