@@ -2,6 +2,7 @@
 .idea/*
 data/*
 output/*
+src/log_*
 .DS_Store
 
 # VIM files
