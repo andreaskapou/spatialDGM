@@ -112,9 +112,10 @@ class PyroVAE(nn.Module):
         # Register PyTorch Decoder module `p_net` with Pyro
         pyro.module("p_net", self.p_net)
         # KLD scale factor (see e.g. https://openreview.net/pdf?id=Sy2fzU9gl)
-        beta = self.kl_coef
+        beta = self.kl_coef.to(self.device)
         # xy - spatial coordinates
         x = self.x
+        batch_size = y.size(0)
 
         data_dim = np.prod(self.data_dim)
         with pyro.plate("data", y.size(0)):
@@ -141,7 +142,7 @@ class PyroVAE(nn.Module):
 
                 if self.rotate:
                     # Calculate the rotation matrix R
-                    R = theta.data.new(batch_size, 2, 2).zero_()
+                    R = theta.data.new(batch_size, 2, 2).zero_().to(self.device)
                     R[:, 0, 0] = torch.cos(theta)
                     R[:, 0, 1] = torch.sin(theta)
                     R[:, 1, 0] = -torch.sin(theta)
@@ -179,7 +180,7 @@ class PyroVAE(nn.Module):
         # register PyTorch Encoder module `q_net` with Pyro
         pyro.module("q_net", self.q_net)
         # KLD scale factor (see e.g. https://openreview.net/pdf?id=Sy2fzU9gl)
-        beta = self.kl_coef
+        beta = self.kl_coef.to(self.device)
         with pyro.plate("data", y.size(0)):
             # use the encoder to get the parameters used to define q(z|y)
             z_loc, z_logscale, z_scale = self.q_net(y)
@@ -277,7 +278,6 @@ class SVITrainer:
         pyro.clear_param_store()
         set_deterministic_mode(seed)
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        model = model.to(self.device)
 
         if optimizer is None:
             optimizer = pyro.optim.Adam({"lr": 1.0e-3})
