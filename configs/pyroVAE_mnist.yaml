@@ -7,12 +7,12 @@ activation: tanh    # Activation function
 modify: 1           # Modification: 0: none, 1: rotate, 2: translate, 3:rotate + translate
 kl_coef: 1.0        # Coefficient for KL term of the loss
 lr: 1e-4            # Learning rate
-step_size: 25       # Epochs num for learning rate to decay
+#step_size: 25      # Epochs num for learning rate to decay
 batch_size: 64      # Mini-batch size
 num_workers: 0      # Number of cpu workers in pytorch dataloader
 num_epochs: 150     # Number of training epochs
 seed: 123           # For reproducibility
-fast_dev_run: false # runs 1 batch of train, test and val 
+#fast_dev_run: false # runs 1 batch of train, test and eval 
 
 # Parameters specific to spatialVAE model
 dx_scale: 0.1       # Standard deviation of 'translation' latent variables
@@ -22,4 +22,4 @@ theta_prior: 0.7854 # pi/4, standard deviation on rotation prior
 hydra:
   run:
     # Output directory
-    dir: ../output/SpatialVAE_mnist_m1_z2   #_${now:%Y%m%d_%H%M%S}
+    dir: ../output/PyroVAE_mnist_m1_z2   #_${now:%Y%m%d_%H%M%S}

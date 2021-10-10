@@ -4,16 +4,16 @@ z_dim: 2            # Latent variable dimension
 hidden_dim: 512     # Dimension of hidden layers
 num_layers: 2       # Number of hidden layers
 activation: relu    # Activation function
-modify: none        # Modification: none, rotate (for now)
+modify: 0           # Modification: none, rotate (for now)
 kl_coef: 1.0        # Coefficient for KL term of the loss
 lr: 1e-4            # Learning rate
 step_size: 50       # Epochs num for learning rate to decay
 batch_size: 64      # Mini-batch size
 num_workers: 2      # Number of cpu workers in pytorch dataloader
-num_epochs: 100      # Number of training epochs
-fast_dev_run: false  # runs 1 batch of train, test and val 
+num_epochs: 150     # Number of training epochs
+fast_dev_run: false # runs 1 batch of train, test and val 
 
 hydra:
   run:
     # Output directory
-    dir: ../output/vae_mnist_none_z2   #_${now:%Y%m%d_%H%M%S}
+    dir: ../output/vae_mnist_z2   #_${now:%Y%m%d_%H%M%S}
