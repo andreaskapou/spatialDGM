@@ -17,7 +17,7 @@ import pyro
 import torchvision.transforms.functional as TF
 import torchvision.transforms as transforms
 
-from dm_mnist import MnistRotate
+from dm_mnist import MnistDataModule
 from pyroVAE import PyroVAE, SVITrainer
 
 from omegaconf import OmegaConf
