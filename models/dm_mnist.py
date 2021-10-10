@@ -24,7 +24,7 @@ class MnistDataModule(pl.LightningDataModule):
 		data_dir: str = osp.join('..', '..', 'data'),
 		dataset_name: str = "MNIST",
 		batch_size: int = 32,
-		modify: str = "none",
+		modify: int = 1, # 0: none, 1: rotate
 		num_workers: int = 0
 	):
 		super().__init__()
@@ -102,7 +102,7 @@ class MnistRotate(VisionDataset):
 		root: str,
 		dataset_name: str = "MNIST",
 		train: bool = True,
-		modify: str = "none",
+		modify: int = 1,
 		transform: Optional[Callable] = None,
 		target_transform: Optional[Callable] = None,
 		download: bool = False,
@@ -157,6 +157,7 @@ class MnistRotate(VisionDataset):
 			index (int): Index
 		Returns:
 			img_rot: Rotated image
+			img_class: Class label of specific image
 			angle: Angle used to rotate image
 		"""
 		img = self.data[index]
@@ -164,7 +165,7 @@ class MnistRotate(VisionDataset):
 		img = Image.fromarray(img.numpy(), mode='L')
 
 		# Apply modifications to the image
-		if self.modify.lower() == "rotate":
+		if self.modify == 1:
 			# Rotate
 			if self.train is False:
 				angle = self.rotations_legit[index % len(self.rotations_legit)]
@@ -173,15 +174,15 @@ class MnistRotate(VisionDataset):
 			angle_deg = angle * 180 / np.pi
 			# Perform rotation
 			img = TF.rotate(img=img, angle=angle_deg.item()) 
-		elif self.modify.lower() == "translate": 
-			raise ValueError('Option {} is not implemented'.format(self.modify.lower()))
+		elif self.modify > 1: 
+			raise ValueError('Option {} is not implemented'.format(self.modify))
 		else:
 			angle = torch.tensor([0.0])
 
 		# Apply transformation
 		if self.transform is not None:
 			img = self.transform(img)
-		return img, int(self.targets[index]), angle
+		return img, self.targets[index], angle
 
 
 

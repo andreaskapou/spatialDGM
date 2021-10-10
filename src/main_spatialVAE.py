@@ -5,11 +5,13 @@ import hydra
 import logging
 import os
 import os.path as osp
+import yaml
+
 import pytorch_lightning as pl
 import torch
 
 from dm_mnist import MnistDataModule
-from spatialVAE import spatialVAE
+from spatialVAE import SpatialVAE
 from omegaconf import OmegaConf
 logger = logging.getLogger(__name__)
 
@@ -22,15 +24,21 @@ def train_vae(cfg):
     out_dir = os.getcwd()
     logger.info('Working directory {}'.format(out_dir))
 
+    # Store config file locally
+    filename = open(osp.join(os.getcwd(), 'hparams.yaml'), "w")
+    yaml.dump(OmegaConf.to_yaml(cfg), filename)
+    filename.close()
+
     # To ensure reproducibility
     pl.seed_everything(123)
 
-    # Dataset
-    dm = MnistDataModule(data_dir = osp.join('..', '..', 'data'))
+    # Load dataset, default we assume it is rotated
+    dm = MnistDataModule(data_dir = osp.join('..', '..', 'data'), batch_size=cfg.batch_size, 
+        num_workers=cfg.num_workers, modify=1)
     logger.info('Dataset size {}'.format(dm.size()))
 
     # Model
-    vae_model = spatialVAE(cfg, data_dim=dm.size())
+    vae_model = SpatialVAE(cfg, data_dim=dm.size())
 
     # Train
     trainer = pl.Trainer(checkpoint_callback=False,
@@ -41,10 +49,10 @@ def train_vae(cfg):
 
     # Save models
     #save_file = osp.join(os.getcwd(), 'vae_{}_encoder.pth'.format(cfg.dataset))
-    save_file = osp.join(os.getcwd(), 'spatialVAE_{}_{}_z{}_encoder.pth'.format(cfg.dataset, cfg.modify, cfg.z_dim))
+    save_file = osp.join(os.getcwd(), 'SpatialVAE_{}_m{}_z{}_enc.pth'.format(cfg.dataset, cfg.modify, cfg.z_dim))
     torch.save(vae_model.q_net.state_dict(), save_file)
     logger.info('Saving model: {}'.format(save_file))
-    save_file = osp.join(os.getcwd(), 'spatialVAE_{}_{}_z{}_decoder.pth'.format(cfg.dataset, cfg.modify, cfg.z_dim))
+    save_file = osp.join(os.getcwd(), 'SpatialVAE_{}_m{}_z{}_dec.pth'.format(cfg.dataset, cfg.modify, cfg.z_dim))
     torch.save(vae_model.p_net.state_dict(), save_file)
     logger.info('Saving model: {}'.format(save_file))
 

@@ -9,11 +9,14 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torchvision.transforms.functional as TF
+import pyro
+import pyro.distributions as dist
 
 from dm_mnist import MnistDataModule
 import matplotlib.pyplot as plt
 from vae import VAE
-from spatialVAE import spatialVAE
+from spatialVAE import SpatialVAE
+from pyroVAE import PyroVAE
 from omegaconf import OmegaConf
 
 # Function for loading stored DGM
@@ -44,7 +47,7 @@ def load_spvae(base_dir: str, data_dim = (1, 28, 28)):
     config = osp.join(base_dir, 'lightning_logs/version_0/hparams.yaml')
     cfg = OmegaConf.load(config)
     cfg = cfg.hparams
-    vae = spatialVAE(hparams=cfg, data_dim=data_dim)
+    vae = SpatialVAE(hparams=cfg, data_dim=data_dim)
     #vae = nn.DataParallel(vae)
     # Load pretrained model
     enc_path = osp.join(base_dir, 'spatialVAE_{}_{}_z{}_encoder.pth'.format(cfg.dataset, cfg.modify, cfg.z_dim))
@@ -53,19 +56,76 @@ def load_spvae(base_dir: str, data_dim = (1, 28, 28)):
     vae.p_net.load_state_dict(torch.load(dec_path, map_location=lambda storage, loc: storage), strict=False)
     return vae
 
+# Function for loading stored Pyro DGM
+def load_pyrovae(base_dir: str, data_dim = (1, 28, 28)):
+    class AttrDict(dict):
+        def __init__(self, *args, **kwargs):
+            super(AttrDict, self).__init__(*args, **kwargs)
+            self.__dict__ = self
+
+    config = osp.join(base_dir, 'hparams.yaml')
+    cfg = OmegaConf.load(config)
+    #cfg = cfg.hparams
+    vae = PyroVAE(hparams=cfg, data_dim=data_dim)
+    #vae = nn.DataParallel(vae)
+    # Load pretrained model
+    enc_path = osp.join(base_dir, 'pyroVAE_{}_m{}_z{}_enc.pth'.format(cfg.dataset, cfg.modify, cfg.z_dim))
+    dec_path = osp.join(base_dir, 'pyroVAE_{}_m{}_z{}_dec.pth'.format(cfg.dataset, cfg.modify, cfg.z_dim))
+    vae.q_net.load_state_dict(torch.load(enc_path, map_location=lambda storage, loc: storage), strict=False)
+    vae.p_net.load_state_dict(torch.load(dec_path, map_location=lambda storage, loc: storage), strict=False)
+    return vae
+
 def plot_latent(model, data, ax=None, z_dim=2, num_batches=100):
     z = np.zeros((num_batches+1, z_dim))
     target = []
+    angles = []
     for i, (img, t, angle) in enumerate(data):
         # Second parameter of forward is z: latent space
-        if model.__class__.__name__ == "spatialVAE":
+        if model.model_name == "SpatialVAE":
             z[i, :] = model(y=img, x=model.x)[1].detach().numpy()
-        elif model.__class__.__name__ == "VAE":
+        elif model.model_name == "VAE":
             z[i, :] = model.forward(img)[1].detach().numpy()
+        #elif model.__class__.__name__ == "PyroVAE":
+        elif model.model_name == "PyroVAE":
+            with torch.no_grad():
+                z_loc, z_logscale, z_scale = model.q_net(img)
+                zz = dist.Normal(z_loc, z_scale).sample()
+                z[i, :] = zz[0].detach().numpy()
         target.append(t)
+        angles.append(angle)
         if i >= num_batches:
             break
-    ax.scatter(z[:, 0], z[:, 1], c=target, cmap='tab10')
+    
+    x_idx = 0
+    y_idx = 1
+    if model.__class__.__name__ in ["SpatialVAE", "PyroVAE"]:
+        if model.modify > 0:
+            x_idx = 1
+            y_idx = 2
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize =(22, 6))
+    im1 = ax1.scatter(z[:,x_idx], z[:,y_idx], c=angles, s=1.8, cmap='gnuplot2')
+    ax1.set_xlabel("$z_1$", fontsize=14)
+    ax1.set_ylabel("$z_2$", fontsize=14)
+    cbar1 = fig.colorbar(im1, ax=ax1, shrink=.8)
+    cbar1.set_label("Angles (rad)", fontsize=14)
+    cbar1.ax.tick_params(labelsize=10)
+
+    im2 = ax2.scatter(z[:,x_idx], z[:,y_idx], c=target, s=1.8, cmap='tab10')
+    ax2.set_xlabel("$z_1$", fontsize=14)
+    ax2.set_ylabel("$z_2$", fontsize=14)
+    cbar2 = fig.colorbar(im2, ax=ax2, shrink=.8)
+    cbar2.set_label("Labels", fontsize=14)
+    cbar2.ax.tick_params(labelsize=10);
+    #ax.scatter(z[:, 0], z[:, 1], c=target, cmap='tab10')
+    
+    im3 = ax3.scatter(angles, z[:,0], c=angles, s=1.8, cmap='gnuplot2')
+    ax3.set_xlabel("True angle", fontsize=14)
+    ax3.set_ylabel("Latent dim $z_1$", fontsize=14)
+    cbar3 = fig.colorbar(im3, ax=ax3, shrink=.8)
+    cbar3.set_label("Angles (rad)", fontsize=14)
+    cbar3.ax.tick_params(labelsize=10);
+
+    plt.show()
     
     
 def plot_reconstructed(model, ax, r0=(-10, 10), r1=(-5, 10), n=15):
@@ -74,20 +134,31 @@ def plot_reconstructed(model, ax, r0=(-10, 10), r1=(-5, 10), n=15):
     for i, y in enumerate(np.linspace(*r1, n)):
         for j, x in enumerate(np.linspace(*r0, n)):
             z = torch.Tensor([[x, y]])#.to('cpu')
-            if model.__class__.__name__ == "spatialVAE":
-                x_hat = model.p_net(x = model.x, z = z)
+            if model.__class__.__name__ == "SpatialVAE":
+                x_hat = model.p_net(x=model.x, z=z)
             elif model.__class__.__name__ == "VAE":
-                x_hat = model.p_net(z = z)
-            x_hat = x_hat.reshape(28, 28).detach().numpy() #.to('cpu')
+                x_hat = model.p_net(z=z)
+            elif model.__class__.__name__ == "PyroVAE":
+                z = torch.Tensor([[x, y]]).to('cpu')
+                if model.modify > 0:
+                    x_hat = model.p_net(x=model.x, z=z)
+                else:
+                    x_hat = model.p_net(z=z)
+            x_hat = x_hat.reshape(28, 28).to('cpu').detach().numpy()
             img[(n-1-i)*w:(n-1-i+1)*w, j*w:(j+1)*w] = x_hat
     ax.imshow(img, extent=[*r0, *r1], cmap='gray')
     
-    
 def interpolate(model, x1, x2, n=12):
-    mu1, lv1 = model.q_net(x1)
-    mu2, lv2 = model.q_net(x2)
-    z1, _ = model.reparameterize(mu=mu1, logstd=lv1)
-    z2, _ = model.reparameterize(mu=mu2, logstd=lv2)
+    if model.__class__.__name__ == "PyroVAE":
+        mu1, _, scale1 = model.q_net(x1)
+        mu2, _, scale2 = model.q_net(x2)
+        z1 = dist.Normal(mu1, scale1).sample()
+        z2 = dist.Normal(mu2, scale2).sample()
+    else:
+        mu1, _, scale1 = model.q_net(x1)
+        mu2, _, scale2 = model.q_net(x2)
+        z1 = model.reparameterize(mu=mu1, std=scale1)
+        z2 = model.reparameterize(mu=mu2, std=scale2)
     
     z = torch.stack([z1 + (z2 - z1)*t for t in np.linspace(0, 1, n)])
     interpolate_list = model.p_net(z)
@@ -102,7 +173,7 @@ def interpolate(model, x1, x2, n=12):
     plt.yticks([])
 
     
-def plot_predictions(dm_loader, viz_idxs, axs, vae, spvae):
+def plot_predictions(dm_loader, viz_idxs, axs, vae=None, spvae=None, pyrovae=None):
     for i, idx in enumerate(viz_idxs):
         # Get input and visualize it
         img, _, rot = dm_loader.dataset[idx]
@@ -112,24 +183,48 @@ def plot_predictions(dm_loader, viz_idxs, axs, vae, spvae):
         img_orig = TF.rotate(img=img, angle=-angle_deg) 
         ax = axs[1, i]
         ax.imshow(img_orig.squeeze(), cmap='gray')
-
+        
+        subplot_idx = 2
         # Inference vae
-        img_vae = vae.forward(img)[0].detach().numpy()
-        ax = axs[2, i]
-        ax.imshow(img_vae.squeeze(), cmap='gray')
+        if vae is not None:
+            img_vae = vae.forward(img)[0].detach().numpy()
+            ax = axs[subplot_idx, i]
+            subplot_idx = subplot_idx + 1
+            ax.imshow(img_vae.squeeze(), cmap='gray')
 
-        # Inference vae
-        img_spvae = spvae.forward(y=img, x=spvae.x)[0].detach().numpy()
-        ax = axs[3, i]
-        ax.imshow(img_spvae.squeeze(), cmap='gray')
+        # Inference spatial VAE
+        if spvae is not None:
+            img_spvae = spvae.forward(y=img, x=spvae.x)[0].detach().numpy()
+            ax = axs[subplot_idx, i]
+            subplot_idx = subplot_idx + 1
+            ax.imshow(img_spvae.squeeze(), cmap='gray')
+        
+        # Inference Pyro VAE
+        if pyrovae is not None:
+            with torch.no_grad():
+                z_loc, _, z_scale = pyrovae.q_net(img)
+                z = dist.Normal(z_loc, z_scale).sample()
+                img_pyrovae = pyrovae.p_net(z)[0].detach().numpy()
+            ax = axs[subplot_idx, i]
+            subplot_idx = subplot_idx + 1
+            ax.imshow(img_pyrovae.squeeze(), cmap='gray')
+        
 
     [ax.set_xticks([]) for ax in axs.flatten()]
     [ax.set_yticks([]) for ax in axs.flatten()]
 
     axs[0, 0].set_ylabel('Input')
     axs[1, 0].set_ylabel('Original')
-    axs[2, 0].set_ylabel('VAE')
-    axs[3, 0].set_ylabel('spatialVAE')
+    i = 2
+    if vae is not None:
+        axs[i, 0].set_ylabel('VAE')
+        i = i+1
+    if spvae is not None:
+        axs[i, 0].set_ylabel('SpatialVAE')
+        i = i+1
+    if pyrovae is not None:
+        axs[i, 0].set_ylabel('PyroVAE')
+        i = i+1
 
     plt.tight_layout()
     plt.show()

@@ -12,10 +12,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.utils import save_image
 
-from vae import VAE, Encoder, ResidLinear
+from vae import VAE, Encoder, Decoder, ResidLinear
 
 
-class spatialVAE(VAE):
+class SpatialVAE(VAE):
     # Constructor
     def __init__(self, hparams, data_dim: tuple, **kwargs):
         """
@@ -23,15 +23,16 @@ class spatialVAE(VAE):
             hparams: Parameters defined in the configs folder
             data_dim: Dimension of each datapoint as a tuple
         """
-        super(spatialVAE, self).__init__(hparams = hparams, data_dim = data_dim, **kwargs)
+        super(SpatialVAE, self).__init__(hparams=hparams, data_dim=data_dim, **kwargs)
 
         # Save hyperparameters for reproducibility
         self.save_hyperparameters()
-        self.model = 'spatialVAE'
+        self.model_name = 'SpatialVAE'
         self.hparams.update(hparams)
         self.lr = hparams.lr
         self.kl_coef = hparams.kl_coef
         self.data_dim = data_dim
+        self.modify = hparams.modify
 
         # Set activation function between layers
         if hparams.activation == 'relu':
@@ -45,12 +46,22 @@ class spatialVAE(VAE):
         # SpatialVAE specific params
         ##
         # Standard deviation on rotation prior theta
-        self.theta_prior = hparams.theta_prior
+        self.theta_prior = torch.tensor(hparams.theta_prior)
+        # Standard deviation of 'translation' latent variables
+        self.dx_scale = torch.tensor(hparams.dx_scale)
 
         # What modification we will perform on the data
-        self.rotate = True
+        self.rotate = self.translate = False
+        if hparams.modify == 1:
+            self.rotate = True
+        elif hparams.modify == 2:
+            self.translate = True
+        elif hparams.modify == 3:
+            self.rotate = True
+            self.translate = True
+
         # This is the latent space for encoder
-        self.latent_dim = hparams.z_dim + 1 
+        self.latent_dim = hparams.z_dim + self.rotate + 2 * self.translate 
 
         # Create fixed coordinates array x
         x0, x1 = np.meshgrid(np.linspace(-1, 1, data_dim[1]), np.linspace(1, -1, data_dim[2]))
@@ -58,7 +69,11 @@ class spatialVAE(VAE):
         self.x = torch.from_numpy(x).float()
 
         # Define encoder-decoder
-        self.p_net = SpatialDecoder(data_dim=data_dim, latent_dim=hparams.z_dim, likelihood=hparams.likelihood,
+        if self.modify == 0:
+            self.p_net = Decoder(data_dim=data_dim, latent_dim=hparams.z_dim, likelihood=hparams.likelihood,
+                hidden_dim=hparams.hidden_dim, num_layers=hparams.num_layers, activation=self.activation)
+        else:
+            self.p_net = SpatialDecoder(data_dim=data_dim, latent_dim=hparams.z_dim, likelihood=hparams.likelihood,
                 hidden_dim=hparams.hidden_dim, num_layers=hparams.num_layers, activation=self.activation)
         self.q_net = Encoder(data_dim=data_dim, latent_dim=self.latent_dim, 
                 hidden_dim=hparams.hidden_dim, num_layers=hparams.num_layers, activation=self.activation)
@@ -78,32 +93,53 @@ class spatialVAE(VAE):
         x = x.expand(batch_size, x.size(0), x.size(1))
 
         # Encoder: from input to latent space
-        z_mu, z_logstd = self.q_net(y)
+        z_mu, z_logstd, z_std = self.q_net(y = y)
         # Reparameterization trick so the error is backpropagated through the network
         # Draw samples from variational posterior to calculate E[p(x|z)] 
-        z, z_std = self.reparameterize(mu=z_mu, logstd=z_logstd)
+        z = self.reparameterize(mu=z_mu, std=z_std)
 
-        if self.rotate:
-            theta = z[:, 0]  # z[0] is the rotation theta
-            z = z[:, 1:]
+        theta = dx = torch.tensor(0)
+        if self.modify > 0:  # rotationally- and/or translationaly-invariant mode
+            # Split latent variable into parts for rotation
+            # and/or translation and image content
+            if self.rotate & self.translate:
+                theta = z[:, 0]  # z[0] is the rotation theta
+                dx = z[:, 1:3]   # z[1:2] is the translation Dx
+                z = z[:, 3:]     # the remaining unstructured components
+            elif self.rotate:
+                theta = z[:, 0]  # z[0] is the rotation theta
+                z = z[:, 1:]     # the remaining unstructured components
+            elif self.translate:
+                dx = z[:, :2]    # z[0:1] is the translation Dx
+                z = z[:, 2:]     # the remaining unstructured components
 
-        if fixed_theta is not None:
-            theta = torch.tensor([fixed_theta]).float()
+            if fixed_theta is not None:
+                theta = torch.tensor([fixed_theta]).float()
 
-        # Calculate the rotation matrix R
-        R = theta.data.new(batch_size, 2, 2).zero_()
-        R[:, 0, 0] = torch.cos(theta)
-        R[:, 0, 1] = torch.sin(theta)
-        R[:, 1, 0] = -torch.sin(theta)
-        R[:, 1, 1] = torch.cos(theta)
+            if self.rotate:
+                # Calculate the rotation matrix R
+                R = theta.data.new(batch_size, 2, 2).zero_()
+                R[:, 0, 0] = torch.cos(theta)
+                R[:, 0, 1] = torch.sin(theta)
+                R[:, 1, 0] = -torch.sin(theta)
+                R[:, 1, 1] = torch.cos(theta)
+                # Coordinate transformation by performing batch matrix-matrix multiplication
+                x = torch.bmm(x, R)  # rotate coordinates by theta
 
-        # Coordinate transformation by performing batch matrix-matrix multiplication
-        x = torch.bmm(x, R)  # rotate coordinates by theta
+            if self.translate:
+                dx = dx * self.dx_scale # scale dx by standard deviation
+                dx = dx.unsqueeze(1)
+                # Translated coordinates by dx
+                x = x + dx 
 
         # Decoder: from latent space to reconstructed input
-        # contiguous(): create copy where memory layout for elements is contiguous
-        y_hat = self.p_net(x = x.contiguous(), z = z)
-        return y_hat, z, z_mu, z_logstd, z_std
+        if self.modify == 0:
+            y_hat = self.p_net(z = z)
+        else:
+            # contiguous(): create copy where memory layout for elements is contiguous
+            y_hat = self.p_net(x = x.contiguous(), z = z)
+
+        return y_hat, z, z_mu, z_logstd, z_std, theta
 
     def shared_step(self, batch):
         """
@@ -113,7 +149,7 @@ class spatialVAE(VAE):
         x = self.x   # Extract fixed coordinates
 
         # Run forward pass
-        y_hat, _, z_mu, z_logstd, z_std = self.forward(y = y, x = x)
+        y_hat, _, z_mu, z_logstd, z_std, _ = self.forward(y = y, x = x)
 
         kl_div = 0
         # z[0] is the latent variable that corresponds to the rotation
@@ -125,9 +161,12 @@ class spatialVAE(VAE):
             # TODO: Should there be a summation term as below for z?
             ##
             # Calculate the KL divergence term for rotation term
-            # KL(q || p) = -0.5 * ( 1 + 2*log(s) - log(prior_std) - (m^2 + s^2) / (2*prior_std^2) )
-            kl_div = -0.5*(1 + 2*theta_logstd - np.log(self.theta_prior) - 
-                (theta_mu**2 + theta_std**2) / (2*self.theta_prior**2))
+            # https://stats.stackexchange.com/questions/7440/kl-divergence-between-two-univariate-gaussians
+            # KL(q || p) = -0.5 * ( 1 + 2*log(s) - 2*log(prior_std) - (m^2 + s^2) / (2*prior_std^2) )
+            #kl_div = -0.5*(1 + 2*theta_logstd - 2*np.log(self.theta_prior) - 
+            #    (theta_mu**2 + theta_std**2) / (2*self.theta_prior**2))
+            kl_div = -0.5*(1 + 2*theta_logstd - 2*np.log(self.theta_prior) - 
+                (theta_mu**2 + theta_std**2) / (self.theta_prior**2))
 
 
         ###### Unit normal prior over z (and translation) ####
@@ -149,7 +188,7 @@ class spatialVAE(VAE):
             y=torch.flatten(y, start_dim = 1),         # (batch_size, data_dim)
             size=np.prod(self.data_dim))
 
-        # ELBO = E_q_z[log p(x|z)] - KL*beta, where alpha scaling coefficient (beta-VAE)
+        # ELBO = E_q_z[log p(x|z)] - KL*beta, where beta scaling coefficient (beta-VAE)
         elbo = log_p_x_q_z - kl_div*self.kl_coef
         loss = -elbo
 
@@ -165,7 +204,7 @@ class spatialVAE(VAE):
             # TODO: why cross entropy with logits? and why do we multiply by size
             ##
             #log_p_x_q_z = -F.binary_cross_entropy_with_logits(input=y_hat, target=y, reduction='sum') * size
-            log_p_x_q_z = -F.binary_cross_entropy(input=y_hat, target=y, reduction='sum') * size
+            log_p_x_q_z = -F.binary_cross_entropy(input=y_hat, target=y, reduction='sum')# * size
         elif self.hparams.likelihood == 'gaussian':
             # -0.5 * torch.sum((y_hat - y)**2, 1).mean()
             log_p_x_q_z = -F.mse_loss(input=y_hat, target=y, reduction='sum')  
@@ -176,7 +215,7 @@ class spatialVAE(VAE):
 class SpatialDecoder(nn.Module):
     def __init__(self, data_dim, latent_dim, likelihood, hidden_dim, num_layers=1, activation=nn.LeakyReLU, resid=False):
         """
-        The standard MLP structure for decoder. Decodes each pixel location as a funciton of z.
+        The standard MLP structure for decoder. Decodes each pixel location as a function of z.
         """
         super(SpatialDecoder, self).__init__()
         self.data_dim = data_dim
@@ -209,7 +248,7 @@ class SpatialDecoder(nn.Module):
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x, z):
-        # x is (barch_size, num_coordinates (size of dataset), 2 (x-y location))
+        # x is (batch_size, num_coordinates (size of dataset), 2 (x-y location))
         # z is (batch_size, latent_dim)
 
         if len(x.size()) < 3:
@@ -223,7 +262,7 @@ class SpatialDecoder(nn.Module):
         # Flatten x so dim is now (batch_size * num_coordinates, 2)
         x = x.view(batch_size*n, -1)
 
-        # Pass x coordinates through linear layer to obtain latent space
+        # Pass x coordinates through linear layer to obtain hidden space
         h_x = self.coord_linear(x)
         # Transform dim to (batch_size, n, hidden_dim)
         h_x = h_x.view(batch_size, n, -1)
@@ -238,6 +277,7 @@ class SpatialDecoder(nn.Module):
             h_z = h_z.unsqueeze(1)
 
         # For each coordinate: add unstructed and structured components
+        # Why do it this way to learn a joint hidden space?
         h = h_x + h_z  # (batch_size, num_coords, hidden_dim)
         
         # Again transform dimensions
@@ -251,9 +291,5 @@ class SpatialDecoder(nn.Module):
         # Reshape the output appropriately
         y = y.view(y.size(0), *self.data_dim)
 
-        ## 
-        # TODO: Do we ever learn theta (rotation) parameter explicitly for each image?
-        #       Shouldn't we learn (return) that as well?
-        ##
         return y
 

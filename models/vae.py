@@ -13,6 +13,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.utils import save_image
 
+import pyro
+import pyro.distributions as dist
+
+
 class VAE(pl.LightningModule):
     def __init__(self, hparams, data_dim: tuple, **kwargs):
         """
@@ -24,7 +28,7 @@ class VAE(pl.LightningModule):
 
         # Save hyperparameters for reproducibility
         self.save_hyperparameters()
-        self.model = 'vae'
+        self.model_name = 'VAE'
         self.hparams.update(hparams)
         self.lr = hparams.lr
         self.kl_coef = hparams.kl_coef
@@ -44,6 +48,7 @@ class VAE(pl.LightningModule):
         self.q_net = Encoder(data_dim=data_dim, latent_dim=hparams.z_dim, 
                 hidden_dim=hparams.hidden_dim, num_layers=hparams.num_layers, activation=self.activation)
 
+
     def configure_optimizers(self):
         """
         Configure our default optimizer setting. PL will take care of everything else.
@@ -56,19 +61,19 @@ class VAE(pl.LightningModule):
             optimizer=optim, step_size=self.hparams.step_size, gamma=0.1)
         return [optim], [scheduler]
 
-    def reparameterize(self, mu, logstd):
+    def reparameterize(self, mu, std):
         """
         :param mu: mean from the encoder's latent space z
-        :param logstd: log standard deviation from the encoder's latent space z
+        :param std: standard deviation from the encoder's latent space z
         """
 
         # Check also: https://github.com/PyTorchLightning/lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py#L122
         # If we had as input logvar = log(s^2) = 2*logstd
         # Then std = exp(0.5 * logvar) = exp(0.5 * 2 * logstd)
-        std = torch.exp(logstd)     # standard deviation
+        #std = torch.exp(logstd)     # standard deviation
         eps = torch.randn_like(std) # `randn_like` as we need the same size, sample from Normal
         z = mu + (eps * std)        # sampling as if coming from the input space
-        return z, std
+        return z
 
     def forward(self, y):
         """
@@ -78,9 +83,9 @@ class VAE(pl.LightningModule):
         """
 
         # Encoder: from input to latent space
-        z_mu, z_logstd = self.q_net(y)
+        z_mu, z_logstd, z_std = self.q_net(y)
         # Reparameterization trick so the error is backpropagated through the network
-        z, z_std = self.reparameterize(mu=z_mu, logstd=z_logstd)
+        z = self.reparameterize(mu=z_mu, std=z_std)
         # Decoder: from latent space to reconstructed input
         y_hat = self.p_net(z)
         return y_hat, z, z_mu, z_logstd, z_std
@@ -116,7 +121,7 @@ class VAE(pl.LightningModule):
         choice = random.choice(outputs)
         output_sample = choice[0]
         output_sample = output_sample.reshape(-1, *self.data_dim)
-        save_path = f'../output/{self.model}_{self.hparams.dataset}_{self.hparams.modify}_z{self.hparams.z_dim}_images'
+        save_path = f'../output/{self.model_name}_{self.hparams.dataset}_{self.hparams.modify}_z{self.hparams.z_dim}_images'
         Path(save_path).mkdir(parents=True, exist_ok=True)
         save_image(output_sample, f"{save_path}/epoch_{self.current_epoch+1}.png")
 
@@ -136,9 +141,6 @@ class VAE(pl.LightningModule):
         # Compute the mean KL across the batch
         kl_div = kl_div.mean(dim = 0)
   
-        ##
-        # TODO: Why do they multiply by size?
-        ##
         # Compute expected log likelihood term (negative reconstruction loss)
         log_p_x_q_z = self.compute_log_p_x_q_z(
             y_hat=torch.flatten(y_hat, start_dim = 1), # (batch_size, data_dim)
@@ -158,13 +160,8 @@ class VAE(pl.LightningModule):
         Compute expected log likelihood
         """
         if self.hparams.likelihood == 'bernoulli': 
-            ##
-            # TODO: why cross entropy with logits? and why do we multiply by size
-            ##
-            #log_p_x_q_z = -F.binary_cross_entropy_with_logits(input=y_hat, target=y, reduction='sum') * size
             log_p_x_q_z = -F.binary_cross_entropy(input=y_hat, target=y, reduction='sum')
         elif self.hparams.likelihood == 'gaussian':
-            # -0.5 * torch.sum((y_hat - y)**2, 1).mean()
             log_p_x_q_z = -F.mse_loss(input=y_hat, target=y, reduction='sum')  
         else:
             raise ValueError(f'{self.hparams.likelihood} is not yet supported')
@@ -249,12 +246,13 @@ class Encoder(nn.Module):
         # Size is 2 * latent_dim to store mu and sigma
         z_mu = z[:, :self.latent_dim]
         z_logstd = z[:, self.latent_dim:]
-        return z_mu, z_logstd
+        z_std = torch.exp(z_logstd)
+        return z_mu, z_logstd, z_std
 
 class Decoder(nn.Module):
     def __init__(self, data_dim, latent_dim, likelihood, hidden_dim, num_layers=1, activation=nn.LeakyReLU, resid=False):
         """
-        The standard MLP structure for decoder. Decodes each pixel location as a funciton of z.
+        The standard MLP structure for decoder. Decodes each pixel location as a function of z.
         """
         super(Decoder, self).__init__()
         self.data_dim = data_dim
