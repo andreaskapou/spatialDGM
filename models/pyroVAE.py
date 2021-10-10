@@ -92,8 +92,6 @@ class PyroVAE(nn.Module):
         x = torch.from_numpy(x).float()
         self.x = x.to(self.device)
 
-        self.to(self.device)
-
         # Define encoder-decoder
         if self.modify == 0:
             self.p_net = Decoder(data_dim=data_dim, latent_dim=hparams.z_dim, likelihood=hparams.likelihood,
@@ -103,6 +101,8 @@ class PyroVAE(nn.Module):
                 hidden_dim=hparams.hidden_dim, num_layers=hparams.num_layers, activation=self.activation)
         self.q_net = Encoder(data_dim=data_dim, latent_dim=self.latent_dim, 
                 hidden_dim=hparams.hidden_dim, num_layers=hparams.num_layers, activation=self.activation)
+
+        self.to(self.device)
 
 
     def model(self, y: torch.Tensor) -> torch.Tensor:
@@ -115,7 +115,7 @@ class PyroVAE(nn.Module):
         beta = self.kl_coef
         # xy - spatial coordinates
         x = self.x
-        
+
         # Expand x to match batch size
         batch_size = y.size(0)
         x = x.expand(batch_size, x.size(0), x.size(1))
