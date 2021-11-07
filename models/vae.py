@@ -6,12 +6,17 @@ tensorboard --logdir default
 import random
 from pathlib import Path
 
+from typing import Optional, Tuple, Type, Union
+
+from scipy.stats import norm
+import matplotlib.pyplot as plt
+
 import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.utils import save_image
+from torchvision.utils import save_image, make_grid
 
 import pyro
 import pyro.distributions as dist
@@ -33,6 +38,7 @@ class VAE(pl.LightningModule):
         self.lr = hparams.lr
         self.kl_coef = hparams.kl_coef
         self.data_dim = data_dim
+        self.modify = hparams.modify
 
         # Set activation function between layers
         if hparams.activation == 'relu':
@@ -41,6 +47,9 @@ class VAE(pl.LightningModule):
             self.activation = nn.Tanh
         else: 
             self.activation = nn.LeakyReLU
+
+        # Latent dimensionality
+        self.latent_dim = hparams.z_dim
 
         # Define encoder-decoder
         self.p_net = Decoder(data_dim=data_dim, latent_dim=hparams.z_dim, likelihood=hparams.likelihood,
@@ -121,7 +130,7 @@ class VAE(pl.LightningModule):
         choice = random.choice(outputs)
         output_sample = choice[0]
         output_sample = output_sample.reshape(-1, *self.data_dim)
-        save_path = f'../output/{self.model_name}_{self.hparams.dataset}_{self.hparams.modify}_z{self.hparams.z_dim}_images'
+        save_path = f'../output/{self.model_name}_{self.hparams.dataset}_m{self.hparams.modify}_z{self.hparams.z_dim}_images'
         Path(save_path).mkdir(parents=True, exist_ok=True)
         save_image(output_sample, f"{save_path}/epoch_{self.current_epoch+1}.png")
 
@@ -166,6 +175,40 @@ class VAE(pl.LightningModule):
         else:
             raise ValueError(f'{self.hparams.likelihood} is not yet supported')
         return log_p_x_q_z
+
+    def manifold2d(self, d: int, **kwargs: Union[str, int]) -> torch.Tensor:
+        """
+        Plots a learned latent manifold in the image space
+        """
+        grid_x = norm.ppf(torch.linspace(0.99, 0.01, d))
+        grid_y = norm.ppf(torch.linspace(0.01, 0.99, d))
+        y_hat_all = []
+        for i, xi in enumerate(grid_x):
+            for j, yi in enumerate(grid_y):
+                z_sample = torch.tensor([xi, yi]).float().to(self.device).unsqueeze(0)
+                #if self.num_classes > 0:
+                #    z_sample = torch.cat([z_sample, cls], dim=-1)
+
+                if self.hparams.modify == 0:
+                    y_hat = self.p_net(z = z_sample).squeeze(1)
+                else:
+                    y_hat = self.p_net(x = self.x, z = z_sample).squeeze(1)
+
+                y_hat_all.append(y_hat.detach().cpu())
+        y_hat_all = torch.cat(y_hat_all)
+
+        grid = make_grid(y_hat_all[:, None], nrow=d,
+                         padding=kwargs.get("padding", 2),
+                         pad_value=kwargs.get("pad_value", 0))
+        plt.figure(figsize=(8, 8))
+        plt.imshow(grid[0], cmap=kwargs.get("cmap", "gnuplot"),
+                   origin=kwargs.get("origin", "upper"),
+                   extent=[grid_x.min(), grid_x.max(), grid_y.min(), grid_y.max()])
+        plt.xticks(fontsize=14)
+        plt.yticks(fontsize=14)
+        plt.xlabel("$z_1$", fontsize=18)
+        plt.ylabel("$z_2$", fontsize=18)
+        plt.show()
 
 
     def interpolate(self, x1, x2):

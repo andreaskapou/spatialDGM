@@ -80,7 +80,7 @@ class SpatialVAE(VAE):
                 hidden_dim=hparams.hidden_dim, num_layers=hparams.num_layers, activation=self.activation)
 
 
-    def forward(self, y, x, fixed_theta=None):
+    def forward(self, y, fixed_theta=None):
         """
         The entire pipeline of the VAE: encoder -> reparameterization -> decoder
         Used for inference only (separate from training step)
@@ -91,6 +91,7 @@ class SpatialVAE(VAE):
 
         # Expand x to match batch size
         batch_size = y.size(0)
+        x = self.x
         x = x.expand(batch_size, x.size(0), x.size(1))
 
         # Encoder: from input to latent space
@@ -147,10 +148,10 @@ class SpatialVAE(VAE):
         Training or validation step is implemented here
         """
         y = batch[0] # Get the batch of (modified) images
-        x = self.x   # Extract fixed coordinates
+        #x = self.x   # Extract fixed coordinates
 
         # Run forward pass
-        y_hat, _, z_mu, z_logstd, z_std, _ = self.forward(y = y, x = x)
+        y_hat, _, z_mu, z_logstd, z_std, _ = self.forward(y = y)
 
         kl_div = 0
         # z[0] is the latent variable that corresponds to the rotation

@@ -102,7 +102,95 @@ class PyroVAE(nn.Module):
         self.q_net = Encoder(data_dim=data_dim, latent_dim=self.latent_dim, 
                 hidden_dim=hparams.hidden_dim, num_layers=hparams.num_layers, activation=self.activation)
 
+        # Send all required data to appropriate device
         self.to(self.device)
+
+
+    def reconstruct_fully(self, y): 
+        x = self.x
+        # Expand x to match batch size
+        batch_size = y.size(0)
+        x = x.expand(batch_size, x.size(0), x.size(1))
+
+        # Encoder: from input to latent space
+        z, z_logscale, z_scale = self.q_net(y = y)
+        ## Sample from the encoder
+        #z = dist.Normal(z_loc, z_scale).sample()
+
+        if self.modify > 0:  # rotationally- and/or translationaly-invariant mode
+            # Split latent variable into parts for rotation
+            # and/or translation and image content
+            theta = dx = torch.tensor(0).to(self.device)
+            if self.rotate & self.translate:
+                theta = z[:, 0]  # z[0] is the rotation theta
+                dx = z[:, 1:3]   # z[1:2] is the translation Dx
+                z = z[:, 3:]     # the remaining unstructured components
+            elif self.rotate:
+                theta = z[:, 0]  # z[0] is the rotation theta
+                z = z[:, 1:]     # the remaining unstructured components
+            elif self.translate:
+                dx = z[:, :2]    # z[0:1] is the translation Dx
+                z = z[:, 2:]     # the remaining unstructured components
+
+            if self.rotate:
+                # Calculate the rotation matrix R
+                R = theta.data.new(batch_size, 2, 2).zero_()
+                R[:, 0, 0] = torch.cos(theta)
+                R[:, 0, 1] = torch.sin(theta)
+                R[:, 1, 0] = -torch.sin(theta)
+                R[:, 1, 1] = torch.cos(theta)
+                # Coordinate transformation by performing batch matrix-matrix multiplication
+                x = torch.bmm(x, R)  # rotate coordinates by theta
+
+            if self.translate:
+                dx = dx * self.dx_scale # scale dx by standard deviation
+                dx = dx.unsqueeze(1)
+                # Translated coordinates by dx
+                x = x + dx 
+
+        # Decoder: from latent space to reconstructed input
+        if self.modify == 0:
+            y_hat = self.p_net(z = z)
+        else:
+            # contiguous(): create copy where memory layout for elements is contiguous
+            y_hat = self.p_net(x = x.contiguous(), z = z)
+
+        return y_hat
+
+    def reconstruct(self, y): 
+        x = self.x
+        # Expand x to match batch size
+        batch_size = y.size(0)
+        x = x.expand(batch_size, x.size(0), x.size(1))
+
+        # Encoder: from input to latent space
+        z, z_logscale, z_scale = self.q_net(y = y)
+        ## Sample from the encoder
+        #z = dist.Normal(z_loc, z_scale).sample()
+
+        if self.modify > 0:  # rotationally- and/or translationaly-invariant mode
+            # Split latent variable into parts for rotation
+            # and/or translation and image content
+            theta = dx = torch.tensor(0).to(self.device)
+            if self.rotate & self.translate:
+                theta = z[:, 0]  # z[0] is the rotation theta
+                dx = z[:, 1:3]   # z[1:2] is the translation Dx
+                z = z[:, 3:]     # the remaining unstructured components
+            elif self.rotate:
+                theta = z[:, 0]  # z[0] is the rotation theta
+                z = z[:, 1:]     # the remaining unstructured components
+            elif self.translate:
+                dx = z[:, :2]    # z[0:1] is the translation Dx
+                z = z[:, 2:]     # the remaining unstructured components
+
+        # Decoder: from latent space to reconstructed input
+        if self.modify == 0:
+            y_hat = self.p_net(z = z)
+        else:
+            # contiguous(): create copy where memory layout for elements is contiguous
+            y_hat = self.p_net(x = x.contiguous(), z = z)
+
+        return y_hat
 
 
     def model(self, y: torch.Tensor) -> torch.Tensor:
